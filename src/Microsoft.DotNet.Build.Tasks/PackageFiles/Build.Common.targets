@@ -15,7 +15,7 @@
       Check if the project has been localized by looking for the existence of the .de.xlf file.  By convention, we assume that if 
       a project is localized in German, then it is localized in all languages.
     -->
-    <ExcludeLocalizationImport Condition="'$(ExcludeLocalizationImport)'=='' And !Exists('$(MSBuildProjectDirectory)\MultilingualResources\$(MSBuildProjectName).de.xlf')">true</ExcludeLocalizationImport>
+    <ExcludeLocalizationImport Condition="'$(ExcludeLocalizationImport)'=='' And !Exists('$(MSBuildProjectDirectory)/MultilingualResources/$(MSBuildProjectName).de.xlf')">true</ExcludeLocalizationImport>
   </PropertyGroup>
 
   <!--
@@ -41,6 +41,8 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)ReferenceAssemblies.targets" Condition="'$(ExcludeReferenceAssembliesImport)'!='true'" />
   
+  <Import Project="$(MSBuildThisFileDirectory)Packaging.targets" Condition="'$(ExcludePackagingImport)'!='true' AND '$(MSBuildProjectExtension)' == '.pkgproj'" />
+
   <!-- 
     Import the default target framework targets.
     
@@ -144,18 +146,19 @@
   <!-- 
     Import the PackageLibs.targets which exposes targets from library projects to report what
     assets they contribute to nuget packages.
-      
+      Inputs:
+        PackageTargetFramework - Target moniker to use for harvested dependencies.
+                                 If PackageTargetPath is not set, PackageTargetPath will be constructed 
+                                 based on PackageTargetFramework.
+
       Optional Inputs:
         PackageSourcePath - Source path to the built output to be packaged, default is $(TargetPath)
                             Can be overridden.
         IsReferenceAssembly - true if this project is a reference assembly.
         PackageTargetPath - Destination subpath in the package at which all assets from this project
-                            should be located.  Default is lib\dotnet for implementation assemblies,
-                            ref\dotnet for reference assemblies.  Can be overridden.  When overridding
-                            also override PackageTargetFramework.
-        PackageTargetFramework - Target moniker to use for harvested dependencies, default is 'dotnet'.
-                                 Can be overridden.  If PackageTargetFramework is overridden and PackageTargetPath
-                                 is not, PackageTargetPath will be constructed based on PackageTargetFramework.
+                            should be located.  Default is lib\$(PackageTargetFramework) for implementation 
+                            assemblies, ref\$(PackageTargetFramework) for reference assemblies.  Can be 
+                            overridden.  When overridding also override PackageTargetFramework.
         PackageTargetRuntime - Runtime id to use for harvested dependencies, default is none.
                                Can be overridden.  If PackageTargetRuntime is overridden and PackageTargetPath
                                is not, PackageTargetPath will be constructed based on PackageTargetRuntime.
@@ -182,5 +185,26 @@
     <PropertyGroup>
       <VSDesignTimeBuild Condition="'$(BuildingInsideVisualStudio)'=='true' and '$(BuildingOutOfProcess)'=='false'">true</VSDesignTimeBuild>
     </PropertyGroup>
+  </Target>
+  
+  <!--
+    Providing a definition for __BlockReflectionAttribute in an assembly is a signal to the .NET Native toolchain 
+    to remove the metadata for all non-public APIs. This both reduces size and disables private reflection on those 
+    APIs in libraries that include this. The attribute can also be applied to individual public APIs to similarly block them.
+  -->
+  <PropertyGroup>
+    <BlockReflectionAttribute Condition="'$(BlockReflectionAttribute)'=='' and ('$(TargetGroup)'=='netcore50' or '$(TargetGroup)'=='netcore50aot')">true</BlockReflectionAttribute>
+    <BlockReflectionAttribute Condition="'$(MSBuildProjectExtension)' == '.vbproj'">false</BlockReflectionAttribute>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="'$(BlockReflectionAttribute)'=='true'">
+    <CoreCompileDependsOn>$(CoreCompileDependsOn);AddBlockReflectionAttribute</CoreCompileDependsOn>
+    <BlockReflectionAtributeFile>$(MSBuildThisFileDirectory)/BlockReflectionAttribute.cs</BlockReflectionAtributeFile>
+  </PropertyGroup>
+
+  <Target Name="AddBlockReflectionAttribute" >
+    <ItemGroup>
+      <Compile Include="$(BlockReflectionAtributeFile)" />  
+    </ItemGroup>
   </Target>
 </Project>

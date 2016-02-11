@@ -8,7 +8,6 @@
     <OutputType>Library</OutputType>
     <RootNamespace>Microsoft.DotNet.Build.Tasks</RootNamespace>
     <AssemblyName>Microsoft.DotNet.Build.Tasks</AssemblyName>
-    <CopyNuGetImplementations>true</CopyNuGetImplementations>
     <CLSCompliant>false</CLSCompliant>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <SkipSigning>true</SkipSigning>
@@ -18,9 +17,11 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="BinClashLogger.cs" />
     <Compile Include="Delegates.cs" />
     <Compile Include="ExecWithMutex.cs" />
     <Compile Include="FixNonExistentProjectDependencies.cs" />
+    <Compile Include="GatherFoldersToRestore.cs" />
     <Compile Include="GenerateAssemblyList.cs" />
     <Compile Include="GenerateResourcesCode.cs" />
     <Compile Include="GenerateEncodingTable.cs" />

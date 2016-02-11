@@ -2,6 +2,12 @@ syntax: glob
 
 ### VisualStudio ###
 
+# Tool Runtime Dir
+/[Tt]ools/
+
+# NuGet package restore lockfiles
+project.lock.json
+
 # User-specific files
 *.suo
 *.user

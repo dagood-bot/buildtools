@@ -1,5 +1,6 @@
-// Copyright (c) Microsoft. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
 
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
@@ -147,11 +148,6 @@ namespace Microsoft.DotNet.Build.Tasks
             get; set;
         }
 
-        public bool OmitTransitiveCompileReferences
-        {
-            get; set;
-        }
-
         /// <summary>
         /// Performs the NuGet package resolution.
         /// </summary>
@@ -201,24 +197,12 @@ namespace Microsoft.DotNet.Build.Tasks
             var frameworkReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var fileNamesOfRegularReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            HashSet<string> directReferences = new HashSet<string>();
-            if (OmitTransitiveCompileReferences)
-            {
-                directReferences.UnionWith(GetDirectReferences(lockFile));
-            }
-
             foreach (var package in target)
             {
                 var packageNameParts = package.Key.Split('/');
                 var packageName = packageNameParts[0];
                 var packageVersion = packageNameParts[1];
 
-
-                if (OmitTransitiveCompileReferences && !directReferences.Contains(packageName))
-                {
-                    Log.LogMessageFromResources(MessageImportance.Low, "OmitReferencesFromIndirectPackage", packageName);
-                    continue;
-                }
 
                 Log.LogMessageFromResources(MessageImportance.Low, "ResolvedReferencesFromPackage", packageName);
 
@@ -418,6 +402,12 @@ namespace Microsoft.DotNet.Build.Tasks
 
         private bool IsFileValid(string file, string expectedLanguage, string unExpectedLanguage)
         {
+
+            if(ProjectLanguage == null)
+            {
+                throw new ExceptionFromResource("NoProgrammingLanguageSpecified");
+            }
+
             var expectedProjectLanguage = expectedLanguage;
             expectedLanguage = expectedLanguage == "C#" ? "cs" : expectedLanguage;
             unExpectedLanguage = unExpectedLanguage == "C#" ? "cs" : unExpectedLanguage;
@@ -486,36 +476,6 @@ namespace Microsoft.DotNet.Build.Tasks
             }
 
             return firstTarget;
-        }
-
-
-        /// <summary>
-        /// Determines the packages IDs that were directly referenced
-        /// </summary>
-        /// <param name="lockFile">The lock file JSON.</param>
-        private IEnumerable<string> GetDirectReferences(JObject lockFile)
-        {
-            var dependencyGroups = (JObject)lockFile["projectFileDependencyGroups"];
-
-            if (null == dependencyGroups)
-            {
-                return Enumerable.Empty<string>();
-            }
-
-            return dependencyGroups.Values<JProperty>()
-                .Where(dg => dg.Name == "" || TargetMonikers.Select(tm => tm.ItemSpec).Contains(dg.Name))
-                .SelectMany(dg => dg.Value.Values<string>())
-                .Select(dependencyClause =>
-                {
-                    int lengthOfDependencyId = dependencyClause.IndexOf(' ');
-
-                    if (lengthOfDependencyId == -1)
-                    {
-                        throw new Exception("InvalidDependencyFormat");
-                    }
-
-                    return dependencyClause.Substring(0, lengthOfDependencyId);
-                });
         }
 
         private string GetTargetMonikerWithOptionalRuntimeIdentifier(ITaskItem preferredTargetMoniker, bool needsRuntimeIdentifier)
@@ -589,15 +549,28 @@ namespace Microsoft.DotNet.Build.Tasks
         private void GetReferencedPackages(JObject lockFile)
         {
             var projectFileDependencyGroups = (JObject)lockFile["projectFileDependencyGroups"];
-            var projectFileDependencies = (JArray)projectFileDependencyGroups[""];
 
-            foreach (var packageDependency in projectFileDependencies.Select(v => (string)v))
+            // find whichever target we will have selected
+            var actualTarget = GetTargetOrAttemptFallback(lockFile, needsRuntimeIdentifier: false)?.Parent as JProperty;
+            string targetMoniker = null;
+            if (actualTarget != null)
             {
-                int firstSpace = packageDependency.IndexOf(' ');
+                targetMoniker = actualTarget.Name.Split('/').FirstOrDefault();
+            }
 
-                if (firstSpace > -1)
+            foreach (var dependencyGroup in projectFileDependencyGroups.Values<JProperty>())
+            {
+                if (dependencyGroup.Name.Length == 0 || dependencyGroup.Name == targetMoniker)
                 {
-                    _referencedPackages.Add(new TaskItem(packageDependency.Substring(0, firstSpace)));
+                    foreach (var packageDependency in dependencyGroup.Value.Values<string>())
+                    {
+                        int firstSpace = packageDependency.IndexOf(' ');
+
+                        if (firstSpace > -1)
+                        {
+                            _referencedPackages.Add(new TaskItem(packageDependency.Substring(0, firstSpace)));
+                        }
+                    }
                 }
             }
         }

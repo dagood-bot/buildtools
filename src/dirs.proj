@@ -10,11 +10,15 @@
   <Import Project="..\dir.targets" />
 
   <Import Project="..\dir.traversal.targets" />
+  
+  <PropertyGroup>
+    <BuildToolsTaskDir>$(ToolsDir)</BuildToolsTaskDir>
+  </PropertyGroup>
 
-  <Import Project="$(ToolsDir)packages.targets" Condition="Exists('$(ToolsDir)packages.targets') and '$(ImportGetNuGetPackageVersions)' != 'false'" />
+  <Import Project="Microsoft.DotNet.Build.Tasks\PackageFiles\packages.targets" Condition="'$(ImportGetNuGetPackageVersions)' != 'false'" />
   <Import Project="$(ToolsDir)UpdateBuildValues.targets" Condition="Exists('$(ToolsDir)UpdateBuildValues.targets')" />
 
-  <PropertyGroup Condition="Exists('$(ToolsDir)packages.targets') and '$(ImportGetNuGetPackageVersions)' != 'false'">
+  <PropertyGroup Condition="'$(ImportGetNuGetPackageVersions)' != 'false'">
     <TraversalBuildDependsOn>
       $(TraversalBuildDependsOn);
       BuildPackages;
@@ -26,5 +30,21 @@
   </PropertyGroup>
   <Import Project="$(ToolsDir)CodeCoverage.targets" Condition="Exists('$(ToolsDir)CodeCoverage.targets')" />
   <Import Project="$(ToolsDir)PerfTesting.targets" Condition="Exists('$(ToolsDir)PerfTesting.targets')" />
+
+<!--  Temporary Removing this since NugetPack doesn't support passing in a version number, so falling back to Nuget.exe temporarily.
+      Issue: https://github.com/dotnet/buildtools/issues/430
+  Overriding BuildPackages Target to use NuGet-independent version instead
+  <UsingTask TaskName="NuGetPack" AssemblyFile="$(PackagingTaskDir)Microsoft.DotNet.Build.Tasks.Packaging.dll"/>
+
+  <Target Name="BuildPackages">
+    <MakeDir Directories="$(PackagesOutDir)" />
+
+    <NugetPack Nuspecs="%(PackagesNuSpecFiles.FullPath)"
+             OutputDirectory="$(PackagesOutDir)%(PackagesNuSpecFiles.Filename).%(PackagesNuSpecFiles.PackageVersion).nupkg"
+             BaseDirectory="$(PackagesBasePath)"
+             ExcludeEmptyDirectories="true"
+             Condition="'$(_SkipCreatePackage)' != 'true'"/>
+  </Target>
+-->
 
 </Project>
