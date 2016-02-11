@@ -6,7 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
-namespace Microsoft.DotNet.Build.Tasks
+namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
 {
     public class FixNonExistentProjectDependencies : ValidateRestoredProjectDependencies
     {
@@ -19,7 +19,7 @@ namespace Microsoft.DotNet.Build.Tasks
         protected override void HandleNonExistentDependency(
             string name,
             string version,
-            IEnumerable<string> libraryVersionsRestored,
+            IEnumerable<NuGetVersion> restoredVersions,
             string lockFilePath)
         {
             Log.LogMessage(
@@ -35,7 +35,6 @@ namespace Microsoft.DotNet.Build.Tasks
                 Log.LogError("Could not parse version of {0} {1} in '{2}'.", name, version, lockFilePath);
                 return;
             }
-            var restoredVersions = libraryVersionsRestored.Select(v => NuGetVersion.Parse(v));
 
             // If the requested version is a stable version and anything except that stable version
             // was resolved, the stable version doesn't exist and this is impossible to auto-fix.
@@ -145,11 +144,6 @@ namespace Microsoft.DotNet.Build.Tasks
                     string.Format("\"{0}\": \"{1}\"", name, matchedVersion.ToNormalizedString()));
 
                 Log.LogWarning("Writing project file '{0}'", projectPath);
-                FileAttributes projectAttributes = File.GetAttributes(projectPath);
-                if (projectAttributes.HasFlag(FileAttributes.ReadOnly))
-                {
-                    File.SetAttributes(projectPath, projectAttributes & ~FileAttributes.ReadOnly);
-                }
                 File.WriteAllText(projectPath, newProjectContents);
             }
             else

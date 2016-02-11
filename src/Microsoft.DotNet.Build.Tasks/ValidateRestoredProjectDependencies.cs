@@ -1,10 +1,12 @@
 ﻿using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using Newtonsoft.Json.Linq;
+using NuGet.ProjectModel;
+using NuGet.Versioning;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Microsoft.DotNet.Build.Tasks
+namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
 {
     public class ValidateRestoredProjectDependencies : Task
     {
@@ -15,39 +17,43 @@ namespace Microsoft.DotNet.Build.Tasks
         {
             foreach (var projectLockItem in ProjectLockJsons)
             {
-                var lockfile = VisitProjectDependencies.ReadJsonFile(projectLockItem.ItemSpec);
+                var format = new LockFileFormat();
+                var lockfile = format.Read(projectLockItem.ItemSpec);
                 ValidateLockFile(lockfile, projectLockItem.ItemSpec);
             }
 
             return !Log.HasLoggedErrors;
         }
 
-        private void ValidateLockFile(JObject lockfile, string lockFilePath)
+        private void ValidateLockFile(LockFile lockfile, string lockFilePath)
         {
-            var lockedDependencyVersions = lockfile["libraries"]
-                .Children<JProperty>()
-                .Select(p => p.Name.Split('/'))
-                .ToLookup(libParts => libParts[0], libParts => libParts[1]);
+            var lockedDependencyVersions = lockfile.Libraries.ToLookup(lib => lib.Name, lib => lib.Version);
 
-            var requestedDependencies = lockfile["projectFileDependencyGroups"]
-                .Children<JProperty>()
-                .Where(group => group.Name == "")
-                .SelectMany(group => group.Value.Value<JArray>().Values<string>());
-
-            foreach (string dependency in requestedDependencies)
+            bool differencesFound = false;
+            foreach (var requestedFrameworkDependencies in lockfile.ProjectFileDependencyGroups)
             {
-                string[] dependencyParts = dependency.Split(' ');
-                string requestedId = dependencyParts[0];
-                string requestedVersion = dependencyParts[2];
-
-                IEnumerable<string> versionsRestored = lockedDependencyVersions[requestedId];
-
-                // Check if the requested package was restored. Some packages (e.g. coveralls.io)
-                // are specified as 1.4 and resolve correctly to 1.4.0, so allow that.
-                if (!versionsRestored.Contains(requestedVersion) &&
-                    !versionsRestored.Contains(requestedVersion + ".0"))
+                foreach (string dependency in requestedFrameworkDependencies.Dependencies)
                 {
-                    HandleNonExistentDependency(requestedId, requestedVersion, versionsRestored, lockFilePath);
+                    string[] dependencyParts = dependency.Split(' ');
+                    string requestedId = dependencyParts[0];
+                    string requestedVersion = dependencyParts[2];
+                    NuGetVersion requestedNuGetVersion = NuGetVersion.Parse(requestedVersion);
+
+                    IEnumerable<NuGetVersion> restoredVersions = lockedDependencyVersions[requestedId];
+
+                    // Check if the requested package was restored. Normalize using NuGet version parsing.
+                    if (!restoredVersions.Contains(requestedNuGetVersion))
+                    {
+                        HandleNonExistentDependency(requestedId, requestedVersion, restoredVersions, lockFilePath);
+                        differencesFound = true;
+                    }
+                }
+                if (differencesFound)
+                {
+                    Log.LogWarning(
+                        "Found different requested version vs. restored version for framework {0} in {1}",
+                        requestedFrameworkDependencies.FrameworkName,
+                        lockFilePath);
                 }
             }
         }
@@ -55,7 +61,7 @@ namespace Microsoft.DotNet.Build.Tasks
         protected virtual void HandleNonExistentDependency(
             string name,
             string version,
-            IEnumerable<string> libraryVersionsRestored,
+            IEnumerable<NuGetVersion> libraryVersionsRestored,
             string lockFilePath)
         {
             Log.LogError(

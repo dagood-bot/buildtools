@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Microsoft.DotNet.Build.Tasks
+namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
 {
     public class ValidateProjectDependencyVersions : VisitProjectDependencies
     {
@@ -21,7 +21,6 @@ namespace Microsoft.DotNet.Build.Tasks
 
             public ValidationPattern(ITaskItem item, TaskLoggingHelper log)
             {
-                log.LogMessage(item.ItemSpec);
                 _idPattern = new Regex(item.ItemSpec);
                 _expectedVersion = item.GetMetadata("ExpectedVersion");
                 _expectedPrerelease = item.GetMetadata("ExpectedPrerelease");

@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Microsoft.DotNet.Build.Tasks
+namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
 {
     public class UpdatePackageDependencyVersion : VisitProjectDependencies
     {
