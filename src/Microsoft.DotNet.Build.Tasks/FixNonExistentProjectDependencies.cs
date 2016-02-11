@@ -3,6 +3,7 @@ using NuGet.Versioning;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 
 namespace Microsoft.DotNet.Build.Tasks
@@ -21,13 +22,26 @@ namespace Microsoft.DotNet.Build.Tasks
             IEnumerable<string> libraryVersionsRestored,
             string lockFilePath)
         {
+            Log.LogMessage(
+                "Examining misresolved dependency on {0} {1} in '{2}'",
+                name,
+                version,
+                lockFilePath);
+
             // If possible, choose a stable version.
-            var requestedVersion = NuGetVersion.Parse(version);
+            NuGetVersion requestedVersion;
+            if (!NuGetVersion.TryParse(version, out requestedVersion))
+            {
+                Log.LogError("Could not parse version of {0} {1} in '{2}'.", name, version, lockFilePath);
+                return;
+            }
             var restoredVersions = libraryVersionsRestored.Select(v => NuGetVersion.Parse(v));
 
+            // If the requested version is a stable version and anything except that stable version
+            // was resolved, the stable version doesn't exist and this is impossible to auto-fix.
             if (!requestedVersion.IsPrerelease)
             {
-                Console.WriteLine(
+                Log.LogError(
                     "Can't find upgrade path for nonexistent stable dependency '{0}' '{1}'",
                     name,
                     version);
@@ -47,6 +61,8 @@ namespace Microsoft.DotNet.Build.Tasks
                     name,
                     version,
                     matchingStableVersion.ToNormalizedString());
+
+                ChangeDependencyVersion(name, version, matchingStableVersion, lockFilePath);
             }
             else
             {
@@ -105,6 +121,8 @@ namespace Microsoft.DotNet.Build.Tasks
                                 name,
                                 version,
                                 matchedVersion.ToNormalizedString());
+
+                            ChangeDependencyVersion(name, version, matchedVersion, lockFilePath);
                         }
                     }
                     else
@@ -112,6 +130,34 @@ namespace Microsoft.DotNet.Build.Tasks
                         Log.LogError("Could not start NuGet process to retrieve package versions.");
                     }
                 }
+            }
+        }
+
+        private void ChangeDependencyVersion(string name, string version, NuGetVersion matchedVersion, string lockFilePath)
+        {
+            string projectPath = lockFilePath.Replace("project.lock.json", "project.json");
+            if (File.Exists(projectPath))
+            {
+                string projectContents = File.ReadAllText(projectPath);
+
+                string newProjectContents = projectContents.Replace(
+                    string.Format("\"{0}\": \"{1}\"", name, version),
+                    string.Format("\"{0}\": \"{1}\"", name, matchedVersion.ToNormalizedString()));
+
+                Log.LogWarning("Writing project file '{0}'", projectPath);
+                FileAttributes projectAttributes = File.GetAttributes(projectPath);
+                if (projectAttributes.HasFlag(FileAttributes.ReadOnly))
+                {
+                    File.SetAttributes(projectPath, projectAttributes & ~FileAttributes.ReadOnly);
+                }
+                File.WriteAllText(projectPath, newProjectContents);
+            }
+            else
+            {
+                Log.LogError(
+                    "No project file '{0}' for '{1}', cannot write the correction to persist it.",
+                    projectPath,
+                    lockFilePath);
             }
         }
     }

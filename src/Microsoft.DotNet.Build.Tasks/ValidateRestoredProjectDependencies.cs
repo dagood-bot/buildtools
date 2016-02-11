@@ -42,7 +42,10 @@ namespace Microsoft.DotNet.Build.Tasks
 
                 IEnumerable<string> versionsRestored = lockedDependencyVersions[requestedId];
 
-                if (!versionsRestored.Contains(requestedVersion))
+                // Check if the requested package was restored. Some packages (e.g. coveralls.io)
+                // are specified as 1.4 and resolve correctly to 1.4.0, so allow that.
+                if (!versionsRestored.Contains(requestedVersion) &&
+                    !versionsRestored.Contains(requestedVersion + ".0"))
                 {
                     HandleNonExistentDependency(requestedId, requestedVersion, versionsRestored, lockFilePath);
                 }

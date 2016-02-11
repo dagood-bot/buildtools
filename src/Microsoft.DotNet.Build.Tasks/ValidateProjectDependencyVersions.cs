@@ -20,6 +20,7 @@ namespace Microsoft.DotNet.Build.Tasks
 
             public ValidationPattern(ITaskItem item, TaskLoggingHelper log)
             {
+                log.LogMessage(item.ItemSpec);
                 _idPattern = new Regex(item.ItemSpec);
                 _expectedVersion = item.GetMetadata("ExpectedVersion");
                 _expectedPrerelease = item.GetMetadata("ExpectedPrerelease");
