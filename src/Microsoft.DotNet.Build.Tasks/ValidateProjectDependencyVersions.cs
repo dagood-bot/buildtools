@@ -2,6 +2,7 @@
 using Microsoft.Build.Utilities;
 using Newtonsoft.Json.Linq;
 using NuGet.Versioning;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -118,6 +119,12 @@ namespace Microsoft.DotNet.Build.Tasks
         public bool ProhibitFloatingDependencies { get; set; }
 
         /// <summary>
+        /// Enforces that all dependencies on the same package (case-insensitive match) are
+        /// precisely the same, case-sensitively. Works around https://github.com/NuGet/Home/issues/2102
+        /// </summary>
+        public bool ProhibitCaseMismatch { get; set; }
+
+        /// <summary>
         /// A set of patterns to enforce for package dependencies. If not specified, all
         /// versions are permitted for any package.
         /// </summary>
@@ -127,6 +134,11 @@ namespace Microsoft.DotNet.Build.Tasks
         /// If true, when an invalid dependency is encountered it is changed to the valid version.
         /// </summary>
         public bool UpdateInvalidDependencies { get; set; }
+
+        /// <summary>
+        /// Mapping from all packages seen so far in lowercase to their exact IDs.
+        /// </summary>
+        private Dictionary<string, string> _insensitiveToExactPackageIds = new Dictionary<string, string>();
 
         public override bool VisitPackage(JProperty package, string projectJsonPath)
         {
@@ -166,6 +178,23 @@ namespace Microsoft.DotNet.Build.Tasks
                 // because UpdateInvalidDependencies = false or because a pattern didn't match it:
                 // either way this is an error.
                 Log.LogError("Floating dependency detected: {0}", dependencyMessage);
+            }
+
+            if (ProhibitCaseMismatch)
+            {
+                string lowercaseId = id.ToLowerInvariant();
+                string existingId;
+                if (_insensitiveToExactPackageIds.TryGetValue(lowercaseId, out existingId))
+                {
+                    if (id != existingId)
+                    {
+                        Log.LogError("Capitalization difference detected: {0} referred to as {1}", existingId, dependencyMessage);
+                    }
+                }
+                else
+                {
+                    _insensitiveToExactPackageIds[lowercaseId] = id;
+                }
             }
 
             return packageUpdated;
