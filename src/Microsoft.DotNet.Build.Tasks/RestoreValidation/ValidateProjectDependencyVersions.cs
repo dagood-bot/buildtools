@@ -2,7 +2,9 @@
 using Microsoft.Build.Utilities;
 using Newtonsoft.Json.Linq;
 using NuGet.Versioning;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -112,6 +114,32 @@ namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
             }
         }
 
+        private class UniquePackageEntry
+        {
+            private List<DependencySource> _dependencies = new List<DependencySource>();
+
+            public IEnumerable<DependencySource> Dependencies { get { return _dependencies; } }
+
+            public bool Conflict { get; private set; }
+
+            public void AddSighting(string id, string projectFilePath)
+            {
+                Conflict |= _dependencies.Count > 0 && _dependencies[0].Id != id;
+                _dependencies.Add(new DependencySource { Id = id, ProjectFilePath = projectFilePath });
+            }
+
+            public string GetPreferredId()
+            {
+                return Dependencies.OrderByDescending(d => d.Id).First().Id;
+            }
+        }
+
+        private class DependencySource
+        {
+            public string Id { get; set; }
+            public string ProjectFilePath { get; set; }
+        }
+
         /// <summary>
         /// Prohibits floating dependencies, aka "*" dependencies. Defaults to false, allowing them.
         /// </summary>
@@ -137,7 +165,7 @@ namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
         /// <summary>
         /// Mapping from all packages seen so far in lowercase to their exact IDs.
         /// </summary>
-        private Dictionary<string, string> _insensitiveToExactPackageIds = new Dictionary<string, string>();
+        private Dictionary<string, UniquePackageEntry> _uniquePackages = new Dictionary<string, UniquePackageEntry>();
 
         public override bool VisitPackage(JProperty package, string projectJsonPath)
         {
@@ -182,21 +210,66 @@ namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
             if (ProhibitCaseMismatch)
             {
                 string lowercaseId = id.ToLowerInvariant();
-                string existingId;
-                if (_insensitiveToExactPackageIds.TryGetValue(lowercaseId, out existingId))
+                UniquePackageEntry entry;
+                if (!_uniquePackages.TryGetValue(lowercaseId, out entry))
                 {
-                    if (id != existingId)
-                    {
-                        Log.LogError("Capitalization difference detected: {0} referred to as {1}", existingId, dependencyMessage);
-                    }
+                    entry = _uniquePackages[lowercaseId] = new UniquePackageEntry();
                 }
-                else
-                {
-                    _insensitiveToExactPackageIds[lowercaseId] = id;
-                }
+                entry.AddSighting(id, projectJsonPath);
             }
 
             return packageUpdated;
+        }
+
+        public override void PostVisitValidate()
+        {
+            if (ProhibitCaseMismatch)
+            {
+                foreach (var uniquePair in _uniquePackages.Where(p => p.Value.Conflict))
+                {
+                    string preferredId = uniquePair.Value.GetPreferredId();
+
+                    if (!UpdateInvalidDependencies)
+                    {
+                        Log.LogMessage(
+                            "Different capitalizations of {0}. UpdateInvalidDependencies would change to {1}.",
+                            uniquePair.Key,
+                            preferredId);
+                    }
+
+                    foreach (var dependency in uniquePair.Value.Dependencies)
+                    {
+                        if (UpdateInvalidDependencies)
+                        {
+                            if (dependency.Id != preferredId)
+                            {
+                                string projectJsonContents = File.ReadAllText(dependency.ProjectFilePath);
+
+                                File.SetAttributes(
+                                    dependency.ProjectFilePath,
+                                    (File.GetAttributes(dependency.ProjectFilePath) | FileAttributes.ReadOnly) ^ FileAttributes.ReadOnly);
+                                File.WriteAllText(
+                                    dependency.ProjectFilePath,
+                                    projectJsonContents.Replace(dependency.Id, preferredId));
+
+                                Log.LogWarning(
+                                    "Changed {0} to {1} in {2}",
+                                    dependency.Id,
+                                    preferredId,
+                                    dependency.ProjectFilePath);
+                            }
+                        }
+                        else
+                        {
+                            Log.LogError(
+                                "Capitalization difference: {0} referred to as {1} in {2}",
+                                uniquePair.Key,
+                                dependency.Id,
+                                dependency.ProjectFilePath);
+                        }
+                    }
+                }
+            }
         }
     }
 }

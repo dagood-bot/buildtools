@@ -50,6 +50,8 @@ namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
         /// <returns>True if a change was made that needs to be saved back to the project.json.</returns>
         public abstract bool VisitPackage(JProperty package, string projectJsonPath);
 
+        public virtual void PostVisitValidate() { }
+
         public override bool Execute()
         {
             foreach (var projectJsonPath in ProjectJsons.Select(item => item.ItemSpec))
@@ -67,6 +69,8 @@ namespace Microsoft.DotNet.Build.Tasks.RestoreValidation
                     WriteJsonFile(projectRoot, projectJsonPath);
                 }
             }
+
+            PostVisitValidate();
 
             return !Log.HasLoggedErrors;
         }
