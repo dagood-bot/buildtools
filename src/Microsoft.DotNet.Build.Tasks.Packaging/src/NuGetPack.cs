@@ -27,7 +27,7 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
             get;
             set;
         }
-        
+
         public string BaseDirectory
         {
             get;
@@ -75,63 +75,68 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
                     continue;
                 }
 
-                try
-                {
-                    PackageBuilder builder = new PackageBuilder();
-
-                    using (var nuspecFile = File.Open(nuspecPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    {
-                        string baseDirectoryPath = (string.IsNullOrEmpty(BaseDirectory)) ? Path.GetDirectoryName(nuspecPath) : BaseDirectory;
-                        Manifest manifest = Manifest.ReadFrom(nuspecFile, false);
-                        builder.Populate(manifest.Metadata);
-                        builder.PopulateFiles(baseDirectoryPath, manifest.Files);
-                    }
-
-                    // Overriding the Version from the Metadata if one gets passed in.
-                    if (!string.IsNullOrEmpty(PackageVersion))
-                    {
-                        NuGetVersion overrideVersion;
-                        if (NuGetVersion.TryParse(PackageVersion,out overrideVersion))
-                        {
-                            builder.Version = overrideVersion;
-                        }
-                        else
-                        {
-                            Log.LogError($"Failed to parse Package Version: '{PackageVersion}' is not a valid version.");
-                            continue;
-                        }
-                    }
-
-                    string id = builder.Id, version = builder.Version.ToString();
-
-                    if (String.IsNullOrEmpty(id))
-                    {
-                        Log.LogError($"Nuspec {nuspecPath} does not contain a valid Id");
-                        continue;
-                    }
-
-                    if (String.IsNullOrEmpty(version))
-                    {
-                        Log.LogError($"Nuspec {nuspecPath} does not contain a valid version");
-                        continue;
-                    }
-
-                    string nupkgPath = Path.Combine(OutputDirectory, $"{id}.{version}.nupkg");
-
-                    using (var fileStream = File.Create(nupkgPath))
-                    {
-                        builder.Save(fileStream);
-                    }
-
-                    Log.LogMessage($"Created '{nupkgPath}'");
-                }
-                catch (Exception e)
-                {
-                    Log.LogError($"Error when creating nuget package from {nuspecPath}. {e}");
-                }
+                Pack(nuspecPath);
             }
 
             return !Log.HasLoggedErrors;
+        }
+
+        public void Pack(string nuspecPath)
+        {
+            try
+            {
+                PackageBuilder builder = new PackageBuilder();
+
+                using (var nuspecFile = File.Open(nuspecPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    string baseDirectoryPath = (string.IsNullOrEmpty(BaseDirectory)) ? Path.GetDirectoryName(nuspecPath) : BaseDirectory;
+                    Manifest manifest = Manifest.ReadFrom(nuspecFile, false);
+                    builder.Populate(manifest.Metadata);
+                    builder.PopulateFiles(baseDirectoryPath, manifest.Files);
+                }
+
+                // Overriding the Version from the Metadata if one gets passed in.
+                if (!string.IsNullOrEmpty(PackageVersion))
+                {
+                    NuGetVersion overrideVersion;
+                    if (NuGetVersion.TryParse(PackageVersion, out overrideVersion))
+                    {
+                        builder.Version = overrideVersion;
+                    }
+                    else
+                    {
+                        Log.LogError($"Failed to parse Package Version: '{PackageVersion}' is not a valid version.");
+                        return;
+                    }
+                }
+
+                string id = builder.Id, version = builder.Version.ToString();
+
+                if (String.IsNullOrEmpty(id))
+                {
+                    Log.LogError($"Nuspec {nuspecPath} does not contain a valid Id");
+                    return;
+                }
+
+                if (String.IsNullOrEmpty(version))
+                {
+                    Log.LogError($"Nuspec {nuspecPath} does not contain a valid version");
+                    return;
+                }
+
+                string nupkgPath = Path.Combine(OutputDirectory, $"{id}.{version}.nupkg");
+
+                using (var fileStream = File.Create(nupkgPath))
+                {
+                    builder.Save(fileStream);
+                }
+
+                Log.LogMessage($"Created '{nupkgPath}'");
+            }
+            catch (Exception e)
+            {
+                Log.LogError($"Error when creating nuget package from {nuspecPath}. {e}");
+            }
         }
     }
 }
