@@ -8,11 +8,30 @@ using NuGet.Versioning;
 using NuGet.Packaging;
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using NuGet.Common;
 
 namespace Microsoft.DotNet.Build.Tasks.Packaging
 {
     public class NuGetPack : PackagingTask
     {
+        /// <summary>
+        /// Target file paths to exclude when building the lib package for symbol server scenario
+        /// Copied from https://github.com/NuGet/NuGet.Client/blob/afc65ae26b6f79b85f7a8deddab18c2cc3182b70/src/NuGet.Clients/NuGet.CommandLine/Commands/PackCommand.cs#L24
+        /// </summary>
+        private static readonly string[] _libPackageExcludes = new[] {
+            @"**\*.pdb",
+            @"src\**\*"
+        };
+
+        /// <summary>
+        /// Target file paths to exclude when building the symbols package for symbol server scenario
+        /// </summary>
+        private static readonly string[] _symbolPackageExcludes = new[] {
+            @"content\**\*",
+            @"tools\**\*.ps1"
+        };
 
         [Required]
         public ITaskItem[] Nuspecs
@@ -41,6 +60,21 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
         }
 
         public bool ExcludeEmptyDirectories
+        {
+            get;
+            set;
+        }
+
+        public bool PackSymbolPackage
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
+        /// If set, the symbol package is placed in the given directory. Otherwise OutputDirectory is used.
+        /// </summary>
+        public string SymbolPackageOutputDirectory
         {
             get;
             set;
@@ -75,13 +109,18 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
                     continue;
                 }
 
-                Pack(nuspecPath);
+                Pack(nuspecPath, false);
+
+                if (PackSymbolPackage)
+                {
+                    Pack(nuspecPath, true);
+                }
             }
 
             return !Log.HasLoggedErrors;
         }
 
-        public void Pack(string nuspecPath)
+        public void Pack(string nuspecPath, bool packSymbols)
         {
             try
             {
@@ -93,6 +132,30 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
                     Manifest manifest = Manifest.ReadFrom(nuspecFile, false);
                     builder.Populate(manifest.Metadata);
                     builder.PopulateFiles(baseDirectoryPath, manifest.Files);
+
+                    PathResolver.FilterPackageFiles(
+                        builder.Files,
+                        file => file.Path,
+                        packSymbols ? _symbolPackageExcludes : _libPackageExcludes);
+                }
+
+                if (packSymbols)
+                {
+                    // Symbol packages are only valid if they contain both symbols and sources.
+                    Dictionary<string, bool> pathHasMatches = _libPackageExcludes.ToDictionary(
+                        path => path,
+                        path => PathResolver.GetMatches(builder.Files, file => file.Path, new[] { path }).Any());
+
+                    if (!pathHasMatches.Values.Any(i => i))
+                    {
+                        Log.LogWarning($"Nuspec {nuspecPath} does not contain symbol or source files. Not creating symbol package.");
+                        return;
+                    }
+                    foreach (var pathPair in pathHasMatches.Where(pathMatchPair => !pathMatchPair.Value))
+                    {
+                        Log.LogWarning($"Nuspec {nuspecPath} does not contain any files matching {pathPair.Key}. Not creating symbol package.");
+                        return;
+                    }
                 }
 
                 // Overriding the Version from the Metadata if one gets passed in.
@@ -124,7 +187,21 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
                     return;
                 }
 
-                string nupkgPath = Path.Combine(OutputDirectory, $"{id}.{version}.nupkg");
+                string nupkgOutputDirectory = OutputDirectory;
+
+                if (packSymbols && !string.IsNullOrEmpty(SymbolPackageOutputDirectory))
+                {
+                    nupkgOutputDirectory = SymbolPackageOutputDirectory;
+                }
+
+                string nupkgExtension = packSymbols ? ".symbols.nupkg" : ".nupkg";
+                string nupkgPath = Path.Combine(nupkgOutputDirectory, $"{id}.{version}{nupkgExtension}");
+
+                var directory = Path.GetDirectoryName(nupkgPath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
 
                 using (var fileStream = File.Create(nupkgPath))
                 {
@@ -135,7 +212,8 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
             }
             catch (Exception e)
             {
-                Log.LogError($"Error when creating nuget package from {nuspecPath}. {e}");
+                string packageType = packSymbols ? "symbol" : "lib";
+                Log.LogError($"Error when creating nuget {packageType} package from {nuspecPath}. {e}");
             }
         }
     }
